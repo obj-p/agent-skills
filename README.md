@@ -8,6 +8,8 @@ skill with a `SKILL.md` inside.
 
 - `summarize-cli`: run a command and ask an LM Studio local model to summarize,
   classify, extract, or explain the captured output.
+- `mailbox`: file-based message passing between agent sessions, with register,
+  send, read, monitor, and clean subcommands.
 
 ## Using These Skills
 
