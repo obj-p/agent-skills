@@ -9,6 +9,23 @@ skill with a `SKILL.md` inside.
 - `summarize-cli`: run a command and ask an LM Studio local model to summarize,
   classify, extract, or explain the captured output.
 
+## Using These Skills
+
+Codex discovers `.agents/skills/` automatically, both in this repository and
+from `~/.agents/skills` for global use.
+
+Claude Code reads `.claude/skills/` instead. This repository ships a
+`.claude/skills` symlink pointing at `.agents/skills`, so both tools work from
+a clone with no setup. The symlink requires a symlink-capable checkout, which
+excludes default Windows Git settings.
+
+For global use, symlink a skill into each tool's user directory:
+
+```bash
+ln -s "$PWD/.agents/skills/summarize-cli" ~/.claude/skills/summarize-cli
+ln -s "$PWD/.agents/skills/summarize-cli" ~/.agents/skills/summarize-cli
+```
+
 ## Validation
 
 ```bash
