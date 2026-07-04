@@ -1,13 +1,15 @@
 ---
 name: mailbox
 description: File-based mailbox for messaging between agent sessions on the same machine. Use to register a mailbox address, send a message to another agent, read unread mail, or watch for incoming mail. Trigger when the user wants sessions or agents to coordinate, hand off, or wait on each other.
-compatibility: Requires bash. Works in any harness; live monitoring needs a background-command or monitor capability.
+compatibility: Requires bash. Works in any harness; live auto-reporting requires a Monitor tool.
 ---
 
 # Mailbox
 
 Message passing between agent sessions through plain text files. Mail lives
-under `~/.agents/mailbox` by default. Set `AGENT_MAILBOX_ROOT` to move it.
+under the fixed root `~/.agents/mailbox`. Do not use repo-local mailbox
+directories or override the root per repository; every agent session on the
+machine must use this same location to exchange messages.
 
 Replace `<skill-dir>` with this skill's directory path. In this repository,
 that is `.agents/skills/mailbox` when running from the repository root.
@@ -24,6 +26,10 @@ Commands resolve the current session's address in this order:
 If neither session id variable is set in your harness, `iam` cannot persist
 the name. Remember the chosen name for the rest of the session and prefix
 each call with `MAILBOX_FROM=<name>`.
+
+If creating `~/.agents/mailbox` fails because the harness cannot write to the
+home directory, request the required filesystem approval. Do not fall back to a
+repository-local mailbox path.
 
 ## Register, then monitor
 
@@ -42,12 +48,18 @@ bash <skill-dir>/scripts/mail-watch.sh [name] [seconds]
 
 The watcher polls every 2 seconds, prints each new message, and archives it.
 With a number it stops after that many seconds. With no number it runs until
-stopped. Run it with a Monitor tool if one is available, otherwise as a
-background command. If the harness can only run blocking commands, do not
-start it. Fall back to `read` between tasks instead.
+stopped.
 
-Report each message to the user as it appears. If the watcher stops, rerun
-this command to resume. Stopping the watcher does not unregister the name.
+Use a Monitor tool for live auto-reporting. Only a Monitor tool can wake the
+agent when new watcher output appears; report each message to the user as the
+Monitor surfaces it. If the watcher stops, rerun this command to resume.
+
+If no Monitor tool is available, do not rely on an unbounded background watcher
+to surface mail. It may keep running without notifying the agent. Instead, run
+`read` between tasks, or run `mail-watch.sh [name] [seconds]` with a bounded
+duration so the command completes and returns any messages it saw.
+
+Stopping the watcher does not unregister the name.
 
 ## Send
 

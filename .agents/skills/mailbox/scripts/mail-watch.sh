@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root="${AGENT_MAILBOX_ROOT:-$HOME/.agents/mailbox}"
+root="$HOME/.agents/mailbox"
 sid="${MAILBOX_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}"
+
+if [ -n "${AGENT_MAILBOX_ROOT:-}" ] && [ "$AGENT_MAILBOX_ROOT" != "$root" ]; then
+  echo "warning: ignoring AGENT_MAILBOX_ROOT; fixed mailbox root is $root" >&2
+fi
 
 me="${1:-}"
 secs="${2:-}"
@@ -20,9 +24,13 @@ fi
 
 box="$root/$me/inbox"
 arch="$root/$me/read"
-mkdir -p "$box" "$arch"
+if ! mkdir -p "$box" "$arch" 2>/dev/null; then
+  echo "error: cannot create fixed mailbox root '$root'" >&2
+  echo "grant this session write access to '$HOME/.agents' and retry" >&2
+  exit 1
+fi
 
-echo "watching mailbox for '$me'"
+echo "watching mailbox for '$me' at '$root'"
 end=""
 [ -n "$secs" ] && end=$((SECONDS + secs))
 while [ -z "$end" ] || [ "$SECONDS" -lt "$end" ]; do
