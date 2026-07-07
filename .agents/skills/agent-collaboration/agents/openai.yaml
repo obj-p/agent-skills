@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Collaboration"
+  short_description: "Coordinate multi-agent work with shared memory"
+  default_prompt: "Use $agent-collaboration to coordinate a handoff with another agent."
