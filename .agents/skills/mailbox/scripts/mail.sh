@@ -10,7 +10,7 @@ if [ -n "${AGENT_MAILBOX_ROOT:-}" ] && [ "$AGENT_MAILBOX_ROOT" != "$root" ]; the
 fi
 
 usage() {
-  echo "usage: mail.sh {iam <name>|send <to> <message...>|read [name]|clean [name|all]}"
+  echo "usage: mail.sh {iam <name>|send <to> <message...>|read [name]|wait [name] [seconds]|clean [name|all]}"
 }
 
 ensure_root() {
@@ -30,6 +30,24 @@ mkdir_or_die() {
   fi
 }
 
+validate_addr() {
+  local name="$1" label="${2:-name}"
+  if [ -z "$name" ]; then
+    echo "error: $label required" >&2
+    exit 1
+  fi
+  case "$name" in
+    .|..|*/*)
+      echo "error: invalid $label '$name'; use only letters, digits, dot, underscore, and hyphen" >&2
+      exit 1
+      ;;
+  esac
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "error: invalid $label '$name'; use only letters, digits, dot, underscore, and hyphen" >&2
+    exit 1
+  fi
+}
+
 resolve_addr() {
   if [ -n "${1:-}" ]; then
     echo "$1"
@@ -42,6 +60,15 @@ resolve_addr() {
   if [ -n "$sid" ] && [ -f "$who_dir/$sid" ]; then
     cat "$who_dir/$sid"
   fi
+}
+
+mail_ready() {
+  local me="$1" box="$root/$me/inbox" f
+  [ -d "$box" ] || return 1
+  for f in "$box"/*.txt; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
 }
 
 drain() {
@@ -72,6 +99,7 @@ case "$cmd" in
   iam)
     name="${1:-}"
     [ -z "$name" ] && { echo "error: name required"; exit 1; }
+    validate_addr "$name" "name"
     ensure_root
     if [ -z "$sid" ]; then
       mkdir_or_die "$root/$name/inbox"
@@ -111,6 +139,8 @@ case "$cmd" in
     [ -z "$to" ] && { echo "error: recipient required"; exit 1; }
     [ -z "$from" ] && { echo "error: no identity; run mail.sh iam <name> or set MAILBOX_FROM"; exit 1; }
     [ -z "$body" ] && { echo "error: message required"; exit 1; }
+    validate_addr "$to" "recipient"
+    validate_addr "$from" "sender"
     ensure_root
     box="$root/$to/inbox"
     mkdir_or_die "$box"
@@ -122,8 +152,47 @@ case "$cmd" in
   read)
     me="$(resolve_addr "${1:-}")"
     [ -z "$me" ] && { echo "error: no identity; run mail.sh iam <name> or set MAILBOX_FROM"; exit 1; }
+    validate_addr "$me" "name"
     ensure_root
     drain "$me"
+    ;;
+  wait)
+    name="${1:-}"
+    secs="${2:-}"
+    case "$name" in
+      ''|*[!0-9]*) ;;
+      *)
+        if [ -z "$secs" ]; then
+          secs="$name"
+          name=""
+        fi
+        ;;
+    esac
+    if [ -n "$secs" ]; then
+      case "$secs" in
+        *[!0-9]*) echo "error: seconds must be a non-negative integer" >&2; exit 1 ;;
+      esac
+      secs=$((10#$secs))
+    fi
+    me="$(resolve_addr "$name")"
+    [ -z "$me" ] && { echo "error: no identity; run mail.sh iam <name> or set MAILBOX_FROM"; exit 1; }
+    validate_addr "$me" "name"
+    ensure_root
+    mkdir_or_die "$root/$me/inbox"
+    mkdir_or_die "$root/$me/read"
+    end=""
+    [ -n "$secs" ] && end=$((SECONDS + secs))
+    while true; do
+      if mail_ready "$me"; then
+        drain "$me"
+        exit 0
+      fi
+      if [ -n "$end" ] && [ "$SECONDS" -ge "$end" ]; then
+        echo "timed out waiting for mail for '$me'"
+        exit 124
+      fi
+      sleep 2
+    done
     ;;
   clean)
     ensure_root
@@ -138,6 +207,7 @@ case "$cmd" in
     else
       me="$(resolve_addr "${1:-}")"
       [ -z "$me" ] && { echo "error: no identity; run mail.sh iam <name> or set MAILBOX_FROM"; exit 1; }
+      validate_addr "$me" "name"
       rm -rf "${root:?}/$me"
       echo "cleaned mailbox for '$me'"
     fi

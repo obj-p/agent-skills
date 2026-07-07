@@ -8,6 +8,24 @@ if [ -n "${AGENT_MAILBOX_ROOT:-}" ] && [ "$AGENT_MAILBOX_ROOT" != "$root" ]; the
   echo "warning: ignoring AGENT_MAILBOX_ROOT; fixed mailbox root is $root" >&2
 fi
 
+validate_addr() {
+  local name="$1" label="${2:-name}"
+  if [ -z "$name" ]; then
+    echo "error: $label required" >&2
+    exit 1
+  fi
+  case "$name" in
+    .|..|*/*)
+      echo "error: invalid $label '$name'; use only letters, digits, dot, underscore, and hyphen" >&2
+      exit 1
+      ;;
+  esac
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "error: invalid $label '$name'; use only letters, digits, dot, underscore, and hyphen" >&2
+    exit 1
+  fi
+}
+
 me="${1:-}"
 secs="${2:-}"
 case "$me" in
@@ -21,6 +39,13 @@ if [ -z "$me" ] && [ -n "$sid" ] && [ -f "$root/.who/$sid" ]; then
   me="$(cat "$root/.who/$sid")"
 fi
 [ -z "$me" ] && { echo "error: no identity; run mail.sh iam <name> or set MAILBOX_FROM"; exit 1; }
+validate_addr "$me" "name"
+if [ -n "$secs" ]; then
+  case "$secs" in
+    *[!0-9]*) echo "error: seconds must be a non-negative integer" >&2; exit 1 ;;
+  esac
+  secs=$((10#$secs))
+fi
 
 box="$root/$me/inbox"
 arch="$root/$me/read"
