@@ -31,12 +31,20 @@ Claude Code reads `.claude/skills/` instead. This repository ships a
 a clone with no setup. The symlink requires a symlink-capable checkout, which
 excludes default Windows Git settings.
 
-For global use, symlink a skill into each tool's user directory:
+For global use, symlink the skills into each tool's user directory
+(`~/.claude/skills` for Claude, `~/.agents/skills` for Codex) with the install
+script:
 
 ```bash
-ln -s "$PWD/.agents/skills/summarize-cli" ~/.claude/skills/summarize-cli
-ln -s "$PWD/.agents/skills/summarize-cli" ~/.agents/skills/summarize-cli
+scripts/install-skills.sh            # all skills, both tools
+scripts/install-skills.sh --codex    # only ~/.agents/skills
+scripts/install-skills.sh mailbox    # just one skill
+scripts/install-skills.sh --uninstall
 ```
+
+The links point back at this repo, so edits and `git pull` take effect
+immediately. It is idempotent and never overwrites a real directory. It needs a
+symlink-capable checkout, which excludes default Windows Git settings.
 
 ## Validation
 
