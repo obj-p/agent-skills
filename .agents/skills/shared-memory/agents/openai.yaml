@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared Memory"
+  short_description: "Durable Markdown memory shared across agents"
+  default_prompt: "Use $shared-memory to record or review the standing collaboration record."
