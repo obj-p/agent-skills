@@ -1,6 +1,6 @@
 ---
 name: mailbox
-description: File-based mailbox for messaging between agent sessions on the same machine. Use to register a mailbox address, send a message to another agent, read unread mail, wait for incoming mail with long-poll semantics, or watch for incoming mail. Trigger when the user wants sessions to coordinate, hand off, monitor, or wait on each other.
+description: File-based mailbox for messaging between agent sessions on the same machine. Use to register a mailbox address, send a message to another agent, read unread mail, wait for incoming mail with long-poll semantics, watch for incoming mail, or run a persistent monitor with an events log. Trigger when the user wants sessions to coordinate, hand off, monitor, or wait on each other.
 compatibility: Requires bash. Works in any harness; live auto-reporting requires a Monitor tool.
 ---
 
@@ -64,6 +64,26 @@ to surface mail. It may keep running without notifying the agent. Instead, use
 completes and returns any messages it saw.
 
 Stopping the watcher does not unregister the name.
+
+## Persistent monitor
+
+```bash
+bash <skill-dir>/scripts/mail-monitor.sh [name] [seconds]
+```
+
+Use this instead of `mail-watch.sh` for supervised or background monitoring.
+It appends every message to `~/.agents/mailbox/<name>/events.log` before
+archiving it, then prints the message to stdout. With a number it stops after
+that many seconds; with no number it runs until stopped.
+
+Set `MAILBOX_NOTIFY=1` to request a best-effort macOS notification through
+`osascript`. The monitor is still only a producer of stdout and `events.log`;
+a harness Monitor tool, MCP bridge, `launchd` job, or log tailer must consume
+that output to wake an agent automatically.
+
+Run at most one monitor per mailbox name. `events.log` is append-only and can
+grow without bound on long-lived monitors; rotate it while the monitor is
+stopped if it becomes large.
 
 ## Wait
 
