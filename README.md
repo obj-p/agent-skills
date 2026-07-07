@@ -8,8 +8,18 @@ skill with a `SKILL.md` inside.
 
 - `summarize-cli`: run a command and ask an LM Studio local model to summarize,
   classify, extract, or explain the captured output.
-- `mailbox`: file-based message passing between agent sessions, with register,
-  send, read, monitor, and clean subcommands.
+- `mailbox`: file-based message passing between agent sessions, with `iam`
+  (register), `send`, `read`, `wait`, and `clean` subcommands, plus a separate
+  watch script for monitoring.
+- `agent-collaboration`: playbook that ties the mailbox, shared-memory,
+  handoff, and spawn-agent skills into collaboration modes, a coordination
+  message shape, conflict control, and a verification loop.
+- `shared-memory`: durable Markdown record of objectives, decisions, tasks, and
+  notes under a per-workspace namespace both Claude and Codex can read.
+- `spawn-agent`: spawn a one-shot Claude or Codex worker that runs a job and
+  mails its result back to a mailbox address as a `THREAD`/`VERB` envelope.
+- `handoff`: write a full-context handoff file, or pick up the latest and
+  continue, under the tool-neutral root `~/.agents/handoffs/<repo>/`.
 
 ## Using These Skills
 
