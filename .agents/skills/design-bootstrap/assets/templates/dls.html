@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design Language System</title>
+<style>
+  :root{
+    --bg:#f6f5f1;
+    --panel:#ffffff;
+    --raised:#ffffff;
+    --ink:#24211d;
+    --muted:#6f6a62;
+    --faint:#9b9489;
+    --line:#e4ded3;
+    --line-strong:#d4cabd;
+    --confirm:#0f7b57;
+    --confirm-ink:#ffffff;
+    --secondary:#334155;
+    --secondary-ink:#ffffff;
+    --tertiary:#f0ece4;
+    --destructive:#c73434;
+    --destructive-ink:#ffffff;
+    --focus:#2563eb;
+    --warning:#b7791f;
+    --error:#b42318;
+    --success:#0f7b57;
+    --shadow:0 1px 2px rgba(36,33,29,.06),0 12px 28px rgba(36,33,29,.08);
+    --radius:8px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--font);padding:32px}
+  .page{width:min(1160px,100%);margin:0 auto}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:28px}
+  h1{margin:0;font-size:24px;line-height:1.2}
+  .lede{margin:8px 0 0;color:var(--muted);font-size:14px;line-height:1.55;max-width:760px}
+  h2{margin:30px 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+  .swatch{height:58px;border-radius:6px;border:1px solid rgba(0,0,0,.08);margin-bottom:10px}
+  .name{font-size:13px;font-weight:700}
+  .value{font-size:12px;color:var(--muted);margin-top:3px}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;display:grid;gap:18px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .label{width:100%;font-size:11px;color:var(--faint);font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+  button,.button{height:36px;border:1px solid transparent;border-radius:7px;padding:0 13px;font:700 13px/1 var(--font);display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+  .confirm{background:var(--confirm);color:var(--confirm-ink)}
+  .secondary{background:var(--secondary);color:var(--secondary-ink)}
+  .tertiary{background:var(--tertiary);color:var(--ink);border-color:var(--line)}
+  .destructive{background:var(--destructive);color:var(--destructive-ink)}
+  .ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+  button:disabled{opacity:.48;cursor:not-allowed}
+  button:focus-visible,.field:focus{outline:3px solid rgba(37,99,235,.25);outline-offset:2px}
+  svg{width:16px;height:16px;stroke-width:2}
+  .field{height:38px;border:1px solid var(--line-strong);border-radius:7px;padding:0 11px;font:500 13px/1 var(--font);background:#fff;color:var(--ink)}
+  .seg{display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:8px;background:var(--tertiary)}
+  .seg button{height:30px;background:transparent;color:var(--muted)}
+  .seg button[aria-pressed="true"]{background:var(--panel);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.07)}
+  .modal{width:min(460px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .modal-head,.modal-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  .modal-foot{border-bottom:0;border-top:1px solid var(--line);justify-content:flex-end}
+  .modal-body{padding:16px;color:var(--muted);font-size:13px;line-height:1.5}
+  .notice{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-left:4px solid var(--warning);border-radius:var(--radius);padding:12px;background:#fffaf0;color:var(--ink);font-size:13px}
+  .table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--panel)}
+  .tr{display:grid;grid-template-columns:1.2fr 1fr 120px;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px}
+  .tr:last-child{border-bottom:0}
+  .th{background:var(--tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800}
+  @media (max-width: 760px){
+    body{padding:18px}
+    header{display:block}
+    .grid{grid-template-columns:1fr 1fr}
+    .tr{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div>
+      <h1>Design Language System</h1>
+      <p class="lede">Use this file to settle the project theme and reusable UI before building feature mockups. Update it when a new reusable pattern appears.</p>
+    </div>
+    <button class="ghost" type="button" title="Theme placeholder">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      Theme
+    </button>
+  </header>
+
+  <h2>Tokens</h2>
+  <section class="grid">
+    <div class="card"><div class="swatch" style="background:var(--bg)"></div><div class="name">Background</div><div class="value">--bg</div></div>
+    <div class="card"><div class="swatch" style="background:var(--panel)"></div><div class="name">Panel</div><div class="value">--panel</div></div>
+    <div class="card"><div class="swatch" style="background:var(--ink)"></div><div class="name">Ink</div><div class="value">--ink</div></div>
+    <div class="card"><div class="swatch" style="background:var(--confirm)"></div><div class="name">Confirm</div><div class="value">--confirm</div></div>
+  </section>
+
+  <h2>Controls</h2>
+  <section class="stage">
+    <div class="row">
+      <div class="label">Buttons</div>
+      <button class="confirm" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5"/></svg>Confirm</button>
+      <button class="secondary" type="button">Secondary</button>
+      <button class="tertiary" type="button">Tertiary</button>
+      <button class="destructive" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 6h18M8 6V4h8v2M10 11v6M14 11v6M5 6l1 14h12l1-14"/></svg>Delete</button>
+      <button class="tertiary" type="button" disabled>Disabled</button>
+    </div>
+    <div class="row">
+      <div class="label">Inputs and Modes</div>
+      <input class="field" value="Example field" aria-label="Example field" />
+      <span class="seg" role="group" aria-label="Mode">
+        <button type="button" aria-pressed="true">Review</button>
+        <button type="button" aria-pressed="false">Build</button>
+      </span>
+    </div>
+  </section>
+
+  <h2>Patterns</h2>
+  <section class="stage">
+    <div class="notice">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+      <div><strong>Alert pattern.</strong> Use alerts for state that changes how the user should proceed.</div>
+    </div>
+    <div class="modal" role="dialog" aria-label="Example modal">
+      <div class="modal-head"><strong>Modal title</strong><button class="ghost" type="button" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="modal-body">Modal copy should be short, concrete, and tied to the action in the footer.</div>
+      <div class="modal-foot"><button class="tertiary" type="button">Cancel</button><button class="confirm" type="button">Apply</button></div>
+    </div>
+    <div class="table" role="table" aria-label="Example table">
+      <div class="tr th" role="row"><div>Item</div><div>Status</div><div>Action</div></div>
+      <div class="tr" role="row"><div>Design beat</div><div>Ready for review</div><div><button class="tertiary" type="button">Open</button></div></div>
+      <div class="tr" role="row"><div>Component state</div><div>Needs DLS entry</div><div><button class="tertiary" type="button">Edit</button></div></div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

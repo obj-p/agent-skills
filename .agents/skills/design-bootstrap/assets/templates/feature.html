@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>__FEATURE_TITLE__</title>
+<style>
+  :root{
+    --bg:#f6f5f1;
+    --panel:#ffffff;
+    --raised:#ffffff;
+    --ink:#24211d;
+    --muted:#6f6a62;
+    --faint:#9b9489;
+    --line:#e4ded3;
+    --confirm:#0f7b57;
+    --secondary:#334155;
+    --tertiary:#f0ece4;
+    --destructive:#c73434;
+    --focus:#2563eb;
+    --shadow:0 1px 2px rgba(36,33,29,.06),0 12px 28px rgba(36,33,29,.08);
+    --radius:8px;
+    --beatbar-h:64px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{min-height:100vh;background:var(--bg);color:var(--ink);font-family:var(--font);padding:28px 28px calc(var(--beatbar-h) + 28px)}
+  .app{width:min(1180px,100%);margin:0 auto;display:grid;grid-template-columns:260px 1fr;gap:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .side{padding:18px;min-height:620px}
+  .brand{font-size:15px;font-weight:800;margin-bottom:22px}
+  .nav{display:grid;gap:6px}
+  .nav button{height:36px;border:0;border-radius:7px;background:transparent;color:var(--muted);font:700 13px/1 var(--font);display:flex;align-items:center;gap:9px;padding:0 10px;text-align:left}
+  .nav button.active{background:var(--tertiary);color:var(--ink)}
+  .nav svg,.btn svg,.beat-btn svg{width:16px;height:16px;stroke-width:2}
+  .main{min-width:0}
+  .top{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+  h1{font-size:20px;line-height:1.2;margin:0}
+  .sub{font-size:13px;color:var(--muted);margin-top:5px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .btn{height:36px;border:1px solid transparent;border-radius:7px;padding:0 13px;font:800 13px/1 var(--font);display:inline-flex;align-items:center;gap:7px;background:var(--confirm);color:#fff}
+  .btn.secondary{background:var(--secondary)}
+  .btn.tertiary{background:var(--tertiary);color:var(--ink);border-color:var(--line)}
+  .content{padding:20px;display:grid;gap:16px}
+  .hero{display:grid;grid-template-columns:1.3fr .7fr;gap:16px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);background:var(--raised);padding:16px}
+  .metric{font-size:30px;font-weight:850;letter-spacing:0;margin-top:12px}
+  .muted{color:var(--muted);font-size:13px;line-height:1.5}
+  .list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .row{display:grid;grid-template-columns:1fr 128px 120px;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:center;font-size:13px}
+  .row:last-child{border-bottom:0}
+  .row.head{background:var(--tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:850}
+  .pill{display:inline-flex;align-items:center;justify-content:center;min-height:24px;border-radius:999px;padding:0 9px;background:var(--tertiary);font-size:12px;font-weight:800;color:var(--muted)}
+  .pill.good{background:#e5f5ee;color:#0f7b57}
+  .pill.warn{background:#fff3d6;color:#9a5b00}
+  .empty{min-height:250px;border:1px dashed var(--line);border-radius:var(--radius);display:grid;place-items:center;text-align:center;padding:28px}
+  .empty strong{display:block;margin-bottom:6px}
+  .beatbar{position:fixed;left:0;right:0;bottom:0;height:var(--beatbar-h);display:flex;align-items:center;justify-content:center;padding:10px 14px;background:rgba(255,255,255,.92);border-top:1px solid var(--line);backdrop-filter:blur(12px);z-index:20}
+  .beat-inner{width:min(780px,100%);display:grid;grid-template-columns:44px 1fr 44px;gap:10px;align-items:center}
+  .beat-btn{width:44px;height:40px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--ink);display:grid;place-items:center;cursor:pointer}
+  .beat-btn:disabled{opacity:.35;cursor:not-allowed}
+  .beat-meta{min-width:0;text-align:center}
+  .beat-count{font-size:11px;font-weight:850;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}
+  .beat-title{font-size:14px;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media (max-width: 820px){
+    body{padding:16px 16px calc(var(--beatbar-h) + 16px)}
+    .app{grid-template-columns:1fr}
+    .side{min-height:auto}
+    .hero{grid-template-columns:1fr}
+    .row{grid-template-columns:1fr}
+    .top{display:grid}
+    .actions{justify-content:flex-start}
+  }
+</style>
+</head>
+<body>
+<main class="app">
+  <aside class="panel side">
+    <div class="brand">__FEATURE_TITLE__</div>
+    <nav class="nav" aria-label="Feature sections">
+      <button class="active" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>Overview</button>
+      <button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Queue</button>
+      <button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20v-6M6 20V10M18 20V4"/></svg>Insights</button>
+    </nav>
+  </aside>
+
+  <section class="panel main" aria-live="polite">
+    <div class="top">
+      <div>
+        <h1 id="screen-title">__FEATURE_TITLE__</h1>
+        <div class="sub" id="screen-subtitle">Use beats to make each reviewable state addressable.</div>
+      </div>
+      <div class="actions">
+        <button class="btn tertiary" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18M12 3v18"/></svg>Add</button>
+        <button class="btn secondary" type="button">Secondary</button>
+        <button class="btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m20 6-11 11-5-5"/></svg>Confirm</button>
+      </div>
+    </div>
+    <div class="content" id="beat-content"></div>
+  </section>
+</main>
+
+<div class="beatbar" role="navigation" aria-label="Design beats">
+  <div class="beat-inner">
+    <button class="beat-btn" id="prevBeat" type="button" aria-label="Previous beat" title="Previous beat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <div class="beat-meta">
+      <div class="beat-count" id="beatCount"></div>
+      <div class="beat-title" id="beatTitle"></div>
+    </div>
+    <button class="beat-btn" id="nextBeat" type="button" aria-label="Next beat" title="Next beat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+  const beats = [
+    {
+      title: "Starting state",
+      subtitle: "The default state before the user takes action.",
+      html: `
+        <section class="hero">
+          <div class="card">
+            <div class="muted">Primary workstream</div>
+            <div class="metric">12 ready</div>
+            <p class="muted">Replace this placeholder with the first realistic state for this feature.</p>
+          </div>
+          <div class="card">
+            <div class="muted">Decision point</div>
+            <h2>What should the user notice?</h2>
+            <p class="muted">Use the DLS components and product language established in dls.html.</p>
+          </div>
+        </section>
+        <section class="list" aria-label="Example rows">
+          <div class="row head"><div>Item</div><div>Status</div><div>Action</div></div>
+          <div class="row"><div>First reviewable item</div><div><span class="pill good">Ready</span></div><div><button class="btn tertiary" type="button">Open</button></div></div>
+          <div class="row"><div>Second reviewable item</div><div><span class="pill warn">Waiting</span></div><div><button class="btn tertiary" type="button">Open</button></div></div>
+        </section>
+      `
+    },
+    {
+      title: "Selection made",
+      subtitle: "Show the UI after the user has chosen an item or mode.",
+      html: `
+        <section class="card">
+          <div class="muted">Selected item</div>
+          <h2>Review the decision before confirming</h2>
+          <p class="muted">Represent the meaningful product state, not only the controls.</p>
+          <button class="btn" type="button">Confirm selection</button>
+        </section>
+      `
+    },
+    {
+      title: "Empty or completed state",
+      subtitle: "Show what happens after the primary workflow resolves.",
+      html: `
+        <section class="empty">
+          <div>
+            <strong>Nothing needs attention</strong>
+            <div class="muted">Use empty and completed states to define the full workflow, not just the happy path.</div>
+          </div>
+        </section>
+      `
+    }
+  ];
+  const TOTAL = 3;
+
+  let beat = currentBeatFromURL();
+  const content = document.getElementById("beat-content");
+  const title = document.getElementById("beatTitle");
+  const count = document.getElementById("beatCount");
+  const prev = document.getElementById("prevBeat");
+  const next = document.getElementById("nextBeat");
+  const subtitle = document.getElementById("screen-subtitle");
+
+  function currentBeatFromURL(){
+    const raw = new URLSearchParams(window.location.search).get("beat");
+    const parsed = raw ? Number.parseInt(raw, 10) : 1;
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.min(Math.max(parsed, 1), beats.length);
+  }
+
+  function setBeat(nextBeat, push){
+    beat = Math.min(Math.max(nextBeat, 1), beats.length);
+    const current = beats[beat - 1];
+    content.innerHTML = current.html;
+    title.textContent = current.title;
+    count.textContent = `Beat ${beat} of ${beats.length}`;
+    subtitle.textContent = current.subtitle;
+    prev.disabled = beat === 1;
+    next.disabled = beat === beats.length;
+
+    if (push) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("beat", String(beat));
+      history.pushState({ beat }, "", url);
+    }
+  }
+
+  prev.addEventListener("click", () => setBeat(beat - 1, true));
+  next.addEventListener("click", () => setBeat(beat + 1, true));
+  window.addEventListener("popstate", () => setBeat(currentBeatFromURL(), false));
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") setBeat(beat - 1, true);
+    if (event.key === "ArrowRight") setBeat(beat + 1, true);
+  });
+
+  setBeat(beat, false);
+</script>
+</body>
+</html>

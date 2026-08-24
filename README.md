@@ -20,6 +20,9 @@ skill with a `SKILL.md` inside.
   mails its result back to a mailbox address as a `THREAD`/`VERB` envelope.
 - `handoff`: write a full-context handoff file, or pick up the latest and
   continue, under the tool-neutral root `~/.agents/handoffs/<repo>/`.
+- `design-bootstrap`: bootstrap a project-local design language system,
+  feature HTML mockups, beat navigation, and PNG/GIF render scripts for
+  agent-created design workflows.
 
 ## Using These Skills
 
