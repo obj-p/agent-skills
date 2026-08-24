@@ -9,8 +9,9 @@ skill with a `SKILL.md` inside.
 - `summarize-cli`: run a command and ask an LM Studio local model to summarize,
   classify, extract, or explain the captured output.
 - `mailbox`: file-based message passing between agent sessions, with `iam`
-  (register), `send`, `read`, `wait`, and `clean` subcommands, plus a separate
-  watch script for monitoring.
+  (register), `send`, `read`, `wait`, and `clean` subcommands, watch and
+  monitor scripts, plus Codex wakeup bridges for standalone CLI sessions and
+  live app-server threads.
 - `agent-collaboration`: playbook that ties the mailbox, shared-memory,
   handoff, and spawn-agent skills into collaboration modes, a coordination
   message shape, conflict control, and a verification loop.
