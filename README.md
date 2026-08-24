@@ -20,6 +20,10 @@ skill with a `SKILL.md` inside.
   mails its result back to a mailbox address as a `THREAD`/`VERB` envelope.
 - `handoff`: write a full-context handoff file, or pick up the latest and
   continue, under the tool-neutral root `~/.agents/handoffs/<repo>/`.
+- `coordination`: playbook for a merge-gated coordinator/reviewer/worker fleet
+  over the mailbox — briefed assignment, isolated worktrees, an independent
+  review pass, merge only on green CI plus approval, and watchdog-driven
+  successor handoff so a run survives context exhaustion.
 
 ## Using These Skills
 
