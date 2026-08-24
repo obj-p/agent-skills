@@ -20,6 +20,10 @@ skill with a `SKILL.md` inside.
   mails its result back to a mailbox address as a `THREAD`/`VERB` envelope.
 - `handoff`: write a full-context handoff file, or pick up the latest and
   continue, under the tool-neutral root `~/.agents/handoffs/<repo>/`.
+- `watchdog`: mechanical supervisor that watches agent sessions by their
+  self-reported context gauges and heartbeats, and fires WARN/HARD/STALE
+  threshold events so a coordinator or worker can be handed to a successor
+  before it exhausts context or after it dies.
 
 ## Using These Skills
 
