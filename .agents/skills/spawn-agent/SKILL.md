@@ -68,6 +68,39 @@ TO: claude
 On a nonzero exit the envelope uses `VERB: BLOCKED` and appends the exit code
 and the tail of the worker's stderr.
 
+## Delivery failures and recovery
+
+The wrapper reports worker and delivery exit codes separately. A failed send
+returns the delivery exit code, even when the worker also failed. After a
+successful send, it returns the worker exit code. `DONE` and `BLOCKED` continue
+to describe the worker's outcome; `mailed` is printed only after transport
+success.
+
+Before launching a worker, the wrapper checks that its CLI is on `PATH`, that
+the transport script is readable and passes Bash syntax validation, and that
+it can create a capture directory. These checks do not guarantee delivery.
+
+Failed delivery retains a private run directory under `~/.agents/spawn`
+(override with `SPAWN_ARTIFACT_ROOT`) containing:
+
+- `out.txt` and `err.txt`: complete worker stdout and stderr; Codex's final
+  answer is in `msg.txt` when supplied by the CLI.
+- `envelope.txt`: the exact recipient and message submitted to the transport.
+- `delivery-out.txt`, `delivery-err.txt`, and `status.txt`: transport output
+  and the original worker/delivery exit codes.
+- `retry.sh`: one delivery attempt using the saved envelope and sender.
+
+The wrapper prints the directory and a shell-quoted `bash .../retry.sh` command.
+After correcting the transport failure, run that command to resend the saved
+answer without rerunning the worker. Recovery uses the transport's current
+configuration, returns its exit code, and leaves the original captures in place.
+Inspect its output and remove the run directory after confirming delivery.
+There are no automatic retries. If a failed transport may already have accepted
+the message, check the recipient before resending to avoid a duplicate.
+
+Runs whose initial delivery succeeds remove their captures, including workers
+that exited nonzero and successfully mailed `BLOCKED`.
+
 ## Permissions
 
 The defaults run unattended but read-only, which suits review, research, and
@@ -124,3 +157,5 @@ default config is the read-only child mode above.
 - `SPAWN_CODEX_FLAGS`: override codex exec flags (default `-s read-only`).
 - `MAILBOX_SKILL_DIR`: mailbox skill directory (default sibling `mailbox`
   skill, then `~/.claude/skills/mailbox`).
+- `SPAWN_ARTIFACT_ROOT`: parent directory for private run captures (default
+  `~/.agents/spawn`). Failed delivery preserves these until you remove them.
