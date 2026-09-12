@@ -72,7 +72,7 @@ class MailboxTests(unittest.TestCase):
         result = self.run_mail("send", input=recipient + " " + body)
         self.assertEqual(result.returncode, 0, result.stderr)
         return next(path for path in (self.root / recipient / "inbox").glob("*.txt")
-                    if path.read_text() == body)
+                    if path.is_file() and path.read_text() == body)
 
     def files(self, state, recipient="fixture-bob"):
         return list((self.root / recipient / state).glob("*.txt"))
