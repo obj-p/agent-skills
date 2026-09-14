@@ -19,7 +19,12 @@ skill with a `SKILL.md` inside.
 - `spawn-agent`: spawn a one-shot Claude or Codex worker that runs a job and
   mails its result back to a mailbox address as a `THREAD`/`VERB` envelope.
 - `handoff`: write a full-context handoff file, or pick up the latest and
-  continue, under the tool-neutral root `~/.agents/handoffs/<repo>/`.
+  continue, under `~/.agents/handoffs/<repo-key>/`. The key includes the canonical
+  Git common-directory path hash, so worktrees share handoffs and unrelated
+  same-name repos stay separate. Existing basename directories require verified,
+  explicit migration with `handoff.sh legacy-dir` and `import`; see the
+  [handoff recovery instructions](.agents/skills/handoff/SKILL.md#recover-legacy-handoffs).
+  The helper requires Bash, Git, and Python 3.9+ on macOS/Linux.
 
 ## Using These Skills
 
