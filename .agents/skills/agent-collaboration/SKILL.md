@@ -16,7 +16,10 @@ way of working. Read each one's `SKILL.md` for the details it owns:
 - **`shared-memory`**: durable Markdown record of objectives, decisions, tasks,
   and notes that both agents can read across sessions.
 - **`handoff`**: write a full-context handoff file, or `handoff pickup` to
-  resume one, under the tool-neutral `~/.agents/handoffs/<repo>/`.
+  resume one, under `~/.agents/handoffs/<repo-key>/`. Its canonical Git common-directory
+  key is shared by worktrees and isolates unrelated same-name repos. Legacy basename
+  directories require verified, explicit import; follow the handoff skill's
+  `legacy-dir` and `import` recovery instructions after an empty lookup.
 - **`spawn-agent`**: delegate a self-contained job to a fresh Claude or Codex
   worker that mails its result back.
 

@@ -5,11 +5,15 @@ Run: python3 -B -m unittest discover -s tests -p 'test_handoff.py'
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stderr, redirect_stdout
+import fcntl
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,7 +49,7 @@ class HandoffTests(unittest.TestCase):
         self.root = self.work / "handoffs 'quoted' $literal"
         self.env = dict(os.environ)
         for key in list(self.env):
-            if key.startswith("GIT_") or key in ("BASH_ENV", "ENV", "PYTHONPATH", "PYTHONHOME"):
+            if key.startswith("GIT_") or key in ("BASH_ENV", "ENV", "PYTHONPATH", "PYTHONHOME", "PYTHONIOENCODING", "PYTHONPYCACHEPREFIX"):
                 self.env.pop(key)
         self.env.update(AGENT_HANDOFF_ROOT=str(self.root), PYTHONDONTWRITEBYTECODE="1",
                         GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
@@ -306,7 +310,8 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(archive.read_bytes(), content)
         file.write_bytes(b"later edit")
         self.assertEqual(archive.read_bytes(), content)
-        recovered = handoff.archive(file)
+        with redirect_stderr(io.StringIO()):
+            recovered = handoff.archive(file)
         self.assertEqual(recovered.read_bytes(), b"later edit")
         self.assertEqual(archive.read_bytes(), content)
 
@@ -353,6 +358,242 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(file.parent.parent, self.repo / "local-store")
         self.assertIn("--help $(touch unexpected)", file.read_text())
         self.assertFalse((self.repo / "unexpected").exists())
+
+    def git_shim(self, rejection):
+        directory = self.work / "bin"
+        directory.mkdir(exist_ok=True)
+        script = directory / "git"
+        actual = shutil.which("git")
+        script.write_text(f"#!{sys.executable}\nimport os, sys\n{rejection}\nos.execv({actual!r}, [{actual!r}] + sys.argv[1:])\n")
+        script.chmod(0o755)
+        return dict(self.env, PATH=str(directory) + os.pathsep + self.env["PATH"])
+
+    def test_review_status_collapses_untracked_directories(self):
+        directory = self.repo / "node_modules"
+        directory.mkdir()
+        for index in range(500):
+            (directory / f"file-{index}.js").write_text("fixture")
+        file = self.new()
+        state = self.state(file)
+        self.assertEqual(state["status_porcelain"], ["?? node_modules/"])
+        self.assertTrue(state["dirty"])
+        self.assertEqual(state["status_total_entries"], 1)
+        self.assertEqual(state["status_omitted_entries"], 0)
+        self.assertFalse(state["status_truncated"])
+        self.assertLess(file.stat().st_size, 4096)
+
+    def test_review_status_caps_entry_count_and_reports_omissions(self):
+        for index in range(240):
+            (self.repo / f"file-{index:03d}.txt").write_text("fixture")
+        state = self.state(self.new())
+        self.assertEqual(state["status_total_entries"], 240)
+        self.assertEqual(len(state["status_porcelain"]), 100)
+        self.assertEqual(state["status_omitted_entries"], 140)
+        self.assertTrue(state["status_truncated"])
+        self.assertTrue(state["dirty"])
+
+    def test_review_status_caps_escaped_json_bytes_for_tracked_paths(self):
+        for index in range(160):
+            (self.repo / ("é" * 70 + f"-{index:03d}.txt")).write_text("fixture")
+        self.git(self.repo, "add", ".")
+        file = self.new()
+        state = self.state(file)
+        self.assertEqual(state["status_total_entries"], 160)
+        self.assertLess(len(state["status_porcelain"]), 100)
+        self.assertGreater(state["status_omitted_entries"], 0)
+        self.assertTrue(state["dirty"])
+        self.assertTrue(state["status_truncated"])
+        self.assertLessEqual(len(json.dumps(state["status_porcelain"], indent=2).encode()), 8192)
+        self.assertLess(file.stat().st_size, 12000)
+
+    def test_review_git_without_path_format_support_keeps_nested_identity(self):
+        env = self.git_shim('if "--path-format=absolute" in sys.argv: sys.exit(129)')
+        nested = self.repo / "src"
+        nested.mkdir()
+        created = self.run_handoff("new", "older-git", "goal", env=env).stdout.strip()
+        self.assertEqual(self.run_handoff("latest", cwd=nested, env=env).stdout.strip(), created)
+        self.assertEqual(self.state(Path(created))["git_common_dir"], str(self.repo / ".git"))
+
+    def test_review_git_failures_do_not_fall_back_to_directory_identity(self):
+        env = self.git_shim('if "--git-common-dir" in sys.argv:\n    print("fatal: detected dubious ownership", file=sys.stderr)\n    sys.exit(128)')
+        nested = self.repo / "src"
+        nested.mkdir()
+        for cwd in (self.repo, nested):
+            result = self.run_handoff("new", "rejected", "goal", cwd=cwd, env=env, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("dubious ownership", result.stderr)
+        self.assertFalse(self.root.exists())
+
+    def test_review_missing_git_is_an_explicit_error(self):
+        env = dict(self.env, PATH=str(self.work / "no-executables"))
+        result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "handoff.py"), "repo"],
+                                cwd=self.repo, env=env, capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("Git is required", result.stderr)
+        self.assertFalse(self.root.exists())
+
+    def test_review_broken_repository_marker_is_not_a_non_git_directory(self):
+        (self.repo / ".git/HEAD").unlink()
+        result = self.run_handoff("repo", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("Git rev-parse", result.stderr)
+
+    def test_review_failed_status_does_not_publish_a_clean_snapshot(self):
+        env = self.git_shim('if "status" in sys.argv:\n    print("fatal: fixture index read failure", file=sys.stderr)\n    sys.exit(128)')
+        result = self.run_handoff("new", "bad-status", "goal", env=env, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("index read failure", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(self.root.exists())
+
+    def test_review_archive_rejects_self_and_ancestor_aliases(self):
+        source = self.new()
+        content = source.read_bytes()
+        alias = source.parent / "archive"
+        for target in (source.parent, source.parent.parent):
+            alias.symlink_to(target, target_is_directory=True)
+            started = time.monotonic()
+            result = self.run_handoff("archive", source, check=False)
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("source directory or an ancestor", result.stderr)
+            self.assertEqual(source.read_bytes(), content)
+            alias.unlink()
+
+    def test_review_lock_wait_is_bounded_and_source_survives(self):
+        source = self.new()
+        content = source.read_bytes()
+        for directory in (source.parent, source.parent / "archive"):
+            directory.mkdir(exist_ok=True)
+            with (directory / ".handoff.lock").open("ab") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                with patch.object(handoff, "LOCK_WAIT_SECONDS", 0.05):
+                    with self.assertRaisesRegex(TimeoutError, "timed out waiting for handoff lock"):
+                        handoff.archive(source)
+                self.assertEqual(source.read_bytes(), content)
+                self.assertEqual(list((source.parent / "archive").glob("*.md")), [])
+        destination = handoff.archive(source)
+        self.assertEqual(destination.read_bytes(), content)
+
+    def test_review_distinct_symlinked_archive_directory_still_works(self):
+        source = self.new()
+        external = self.work / "separate-history"
+        external.mkdir()
+        (source.parent / "archive").symlink_to(external, target_is_directory=True)
+        destination = Path(self.run_handoff("archive", source).stdout.strip())
+        self.assertEqual(destination.parent, external)
+        self.assertTrue(destination.is_file())
+        self.assertFalse(source.exists())
+
+    def test_review_archived_import_cannot_be_redirected_into_active_handoffs(self):
+        directory = Path(self.run_handoff("dir").stdout.strip())
+        directory.mkdir(parents=True)
+        (directory / "archive").symlink_to(directory, target_is_directory=True)
+        source = self.work / "old-history.md"
+        source.write_text("keep archived")
+        result = self.run_handoff("import", source, "--archived", check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(source.read_text(), "keep archived")
+        self.assertEqual(self.run_handoff("latest").stdout, "")
+
+    def test_review_invalid_legacy_alias_does_not_break_empty_current_lookup(self):
+        legacy = Path(self.run_handoff("legacy-dir").stdout.strip())
+        legacy.parent.mkdir(parents=True)
+        legacy.symlink_to(legacy)
+        result = self.run_handoff("latest")
+        self.assertEqual(result.stdout, "")
+        self.assertIn("could not inspect legacy", result.stderr)
+
+    def test_review_invalid_byte_goal_is_rejected_before_storage_changes(self):
+        result = subprocess.run([os.fsencode(sys.executable), b"-B", os.fsencode(SCRIPTS / "handoff.py"),
+                                 b"new", b"invalid-goal", b"\xff\xfebad"],
+                                cwd=self.repo, env=self.env, capture_output=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"goal must be valid UTF-8", result.stderr)
+        self.assertEqual(result.stdout, b"")
+        self.assertFalse(self.root.exists())
+
+    def test_review_strict_stdout_encoding_preserves_published_paths(self):
+        env = dict(self.env, AGENT_HANDOFF_ROOT=str(self.work / "résumé"), PYTHONIOENCODING="ascii:strict")
+        for _ in range(2):
+            created = self.run_handoff("new", "unicode", "café ☕", env=env)
+            source = Path(created.stdout.strip())
+            self.assertIn("café ☕", source.read_text())
+            archived = self.run_handoff("archive", source, env=env)
+            self.assertTrue(Path(archived.stdout.strip()).is_file())
+        self.assertIn("preserved", archived.stderr)
+
+    def test_review_path_output_roundtrips_filesystem_bytes(self):
+        buffer = io.BytesIO()
+        stream = io.TextIOWrapper(buffer, encoding="ascii", errors="strict")
+        with patch.object(handoff.sys, "stdout", stream):
+            handoff.print_path(Path(os.fsdecode(b"/tmp/invalid-\xff-name")))
+        self.assertEqual(buffer.getvalue(), b"/tmp/invalid-\xff-name\n")
+
+    def test_review_home_lookup_is_lazy_and_failure_is_actionable(self):
+        env = dict(self.env)
+        env.pop("AGENT_HANDOFF_ROOT")
+        with patch.dict(os.environ, env, clear=True), patch.object(handoff.Path, "home", side_effect=RuntimeError("no home")) as home:
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(handoff.main(["repo"]), 0)
+            home.assert_not_called()
+            error = io.StringIO()
+            with redirect_stderr(error):
+                self.assertEqual(handoff.main(["dir"]), 1)
+            self.assertIn("set AGENT_HANDOFF_ROOT", error.getvalue())
+            with patch.dict(os.environ, {"AGENT_HANDOFF_ROOT": str(self.root)}), redirect_stdout(io.StringIO()):
+                self.assertEqual(handoff.main(["latest"]), 0)
+        self.assertFalse(self.root.exists())
+
+    def test_review_collision_notice_names_preserved_and_new_files(self):
+        first = self.new()
+        content = first.read_bytes()
+        result = self.run_handoff("new", "same-task", "retry")
+        second = Path(result.stdout.strip())
+        self.assertIn(str(first), result.stderr)
+        self.assertIn(str(second), result.stderr)
+        self.assertEqual(first.read_bytes(), content)
+        self.assertNotEqual(first, second)
+
+    def test_review_empty_lookup_points_to_legacy_without_selecting_it(self):
+        legacy = Path(self.run_handoff("legacy-dir").stdout.strip())
+        (legacy / "archive").mkdir(parents=True)
+        old = legacy / "archive/old.md"
+        old.write_text("verify this history")
+        for command in ("latest", "list"):
+            result = self.run_handoff(command)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("legacy-dir", result.stderr)
+            self.assertIn(str(legacy), result.stderr)
+        self.assertEqual(old.read_text(), "verify this history")
+        current = Path(self.run_handoff("dir").stdout.strip())
+        self.assertFalse(current.exists())
+
+    def test_review_explicit_archive_needs_no_home_or_repository(self):
+        source = self.work / "external.md"
+        source.write_text("explicit handoff")
+        with patch.object(handoff.Path, "home", side_effect=RuntimeError("no home")), patch.object(handoff, "Workspace", side_effect=AssertionError("repository not needed")), redirect_stdout(io.StringIO()):
+            self.assertEqual(handoff.main(["archive", str(source)]), 0)
+        self.assertEqual((self.work / "archive/external.md").read_text(), "explicit handoff")
+        missing = self.work / "missing/directory/file.md"
+        self.assertNotEqual(self.run_handoff("archive", missing, check=False).returncode, 0)
+        self.assertFalse(missing.parent.exists())
+
+    def test_review_plain_python_bytecode_is_ignored(self):
+        directory = self.repo / ".agents/skills/handoff/scripts"
+        directory.mkdir(parents=True)
+        shutil.copy(SCRIPTS / "handoff.py", directory / "handoff.py")
+        shutil.copy(SCRIPTS.parents[3] / ".gitignore", self.repo / ".gitignore")
+        env = dict(self.env)
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        subprocess.run([sys.executable, "-c", "import handoff"], cwd=directory, env=env,
+                       check=True, capture_output=True, timeout=5)
+        caches = list(directory.rglob("*.pyc"))
+        self.assertEqual(len(caches), 1)
+        self.git(self.repo, "check-ignore", str(caches[0]))
 
 
 if __name__ == "__main__":

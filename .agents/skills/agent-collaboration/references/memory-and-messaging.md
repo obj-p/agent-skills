@@ -11,8 +11,12 @@ default for same-machine work.
 - **Shared Markdown memory**: durable objective, decisions, task ownership,
   blockers, and verification results under `~/.agents/memory/shared`.
 - **Git**: source-of-truth diff, review surface, and recovery mechanism.
-- **Claude handoff files**: cross-tool pause/resume files under
-  `~/.claude/handoffs/<repo>/`.
+- **Handoff files**: cross-tool pause/resume files under
+  `~/.agents/handoffs/<repo-key>/`. The key hashes the canonical Git common-directory
+  path, so all worktrees share handoffs. Older basename directories are not picked
+  up automatically; use the handoff skill's `legacy-dir` and verified `import`
+  workflow to recover them. Shared-memory storage has its own namespace contract;
+  do not construct its path from a handoff key.
 
 This baseline is easy to inspect, works offline, and does not require a server.
 Its main limitation is that it is single-machine unless the files are synced.
