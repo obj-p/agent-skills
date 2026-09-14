@@ -75,8 +75,9 @@ review, approval, or sandboxing process.
 
 The summary is written to stdout. Stderr emits `summarize-cli: <JSON>` records
 before execution, before inference, and at completion. The final record contains
-`command_exit`, `timed_out`, `model`, `truncated`, `summary_status`, `wrapper_exit`,
-and `artifact_dir`. A null command exit means the command did not run or no
+`command_exit`, `timed_out`, `timeout_seconds`, `interrupted`, `model`, `truncated`,
+`summary_status`, `wrapper_exit`, and `artifact_dir`. Timeout, interruption, and
+coverage facts are also provided to the model outside the captured output. A null command exit means the command did not run or no
 outcome was captured. Status facts are produced by the helper independently of
 the model's prose. `truncated` describes the model input, not the raw logs.
 
@@ -84,7 +85,22 @@ By default, a nonzero command status takes precedence even if summarization
 also fails. Timeouts return `124`; signal termination uses `128 + signal`.
 A successful command followed by a summarizer/setup/capture error returns `2`.
 Use the JSON fields to distinguish a command exiting `2` from a helper error.
-A command interrupted through the wrapper returns `130`.
+Ctrl-C stops the workflow, skips any remaining inference, and returns `130` even
+with `--ignore-command-exit-code`. `interrupted: true` distinguishes cancellation
+from a command that independently exits `130`. Interruptions during setup leave
+`command_exit` null; interruptions after execution preserve its completed status.
+
+On POSIX, Python must expose `os.waitid`/`os.WNOWAIT`; this is checked before
+launching the command. The helper keeps the child unreaped until the final group
+signal, including when a descendant ignores termination. `cleanup_errors`
+reports signaling or reaping errors without replacing the timeout/interruption
+status. Foreground commands remain the supported capture contract.
+
+Metadata persistence is bookkeeping: failures appear in `metadata_errors` and
+never replace a command/model error or suppress a completed summary. When
+`metadata_status` is `stale_or_missing`, `metadata.json` may contain an earlier
+phase; use the final stderr record. A failed summary-file write is reported as
+`summary_artifact_error`; the summary remains available on stdout.
 
 The reported run directory retains:
 
@@ -101,19 +117,23 @@ command, for example `rg -n -a 'ERROR|FAILED' /path/to/run/stdout.log`. Artifact
 remain after success and failure; remove a run directory once it is no longer
 needed. Disk usage grows with command output and retained runs.
 
-Large outputs share the excerpt budget between nonempty stdout and stderr.
-The selector scans the full files in bounded chunks for diagnostic keywords
-(such as error, failed, exception, warning, and timeout), keeps up to eight
-first/last distinct context windows per stream, and samples the beginning,
-middle, and end. Byte-range labels identify the source of each excerpt.
-Non-UTF-8 bytes or split Unicode boundaries are replaced only in model input;
-the raw files preserve every captured byte.
+The excerpt budget counts decoded characters, including byte-range labels.
+Small streams return unused capacity to larger streams. The selector scans fixed
+snapshots of both files in bounded chunks for diagnostic keywords (such as error,
+failed, exception, warning, and timeout), keeps up to eight first/last distinct
+context candidates per stream, and samples the beginning, middle, and end.
+Overlapping ranges are merged before rendering, and the freed capacity supplies
+additional evidence. Byte-range labels identify the source of each excerpt.
+
+Valid UTF-8 characters are retained intact, including at excerpt and scan
+boundaries. Invalid original bytes are replaced only in model input; the raw
+files preserve every captured byte.
 
 Selection is heuristic: unfamiliar diagnostics, dense failures, long messages,
 and small budgets can leave important evidence out. `coverage` reports selected
-versus total bytes and selected diagnostic-window counts (match counts are
-null when a full-output fast path avoids scanning); partial coverage must not be
-interpreted as proof that no other failures exist. Inspect the raw artifacts
+versus total characters and bytes, keyword-match counts, and distinct selected
+diagnostic regions. Partial coverage must not be interpreted as proof that no
+other failures exist. Inspect the raw artifacts
 when the summary affects a decision. Model fidelity and net savings are assessed
 separately in issue #15.
 
@@ -148,6 +168,10 @@ and confidence.
   the local model.
 - If command output may include secrets, run a narrower command or redact output
   before using this skill.
+- Raw stdout/stderr is also saved locally, unredacted, including output omitted
+  from the model input and failed runs. Private directory permissions do not
+  exclude those files from backups. Choose `--artifact-root` for the intended
+  storage policy and remove retained run directories when no longer needed.
 - Treat the local model summary as a helper result, not as ground truth. When
   the result affects code changes or destructive actions, verify the relevant
   lines directly.

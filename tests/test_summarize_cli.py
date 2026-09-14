@@ -17,7 +17,7 @@ import tempfile
 import time
 import tracemalloc
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.error
 
 
@@ -55,10 +55,14 @@ class SummarizeTests(unittest.TestCase):
         self.assertTrue(records, stderr.getvalue())
         final = records[-1]
         self.assertEqual(final['wrapper_exit'], status)
-        if final['artifact_dir']:
+        if final['artifact_dir'] and final.get('metadata_status') == 'saved':
             directory = Path(final['artifact_dir'])
             self.assertEqual(json.loads((directory / 'metadata.json').read_text()), final)
         return status, stdout.getvalue(), final
+
+    def prompt_facts(self):
+        prompt = self.requests[-1]['messages'][1]['content']
+        return json.loads(prompt.split('Command facts from the wrapper:\n', 1)[1].split('\n\n', 1)[0])
 
     def test_nonzero_status_is_preserved_and_facts_are_not_model_prose(self):
         status, summary, facts = self.invoke('print("worker log"); raise SystemExit(7)')
@@ -69,7 +73,7 @@ class SummarizeTests(unittest.TestCase):
         self.assertFalse(facts['timed_out'])
         self.assertFalse(facts['truncated'])
         self.assertEqual(facts['summary_status'], 'ok')
-        self.assertIn('Exit code: 7', self.requests[0]['messages'][1]['content'])
+        self.assertEqual(self.prompt_facts()['command_exit'], 7)
 
     def test_exit_code_compatibility_flags(self):
         for flags, expected in [((), 7), (('--preserve-exit-code',), 7), (('--ignore-command-exit-code',), 0)]:
@@ -125,18 +129,14 @@ class SummarizeTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == 'posix', 'POSIX process groups')
     def test_timeout_kills_term_ignoring_descendant_after_parent_exits(self):
-        descendant = 'import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(os.getpid(), flush=True)\nfor _ in range(600):\n os.write(1, b"heartbeat\\n"); time.sleep(0.1)'
+        descendant = 'import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print(os.getpid(), flush=True)\nfor _ in range(80):\n os.write(1, b"heartbeat\\n"); time.sleep(0.1)'
         code = f'import subprocess, sys, time; subprocess.Popen([sys.executable, "-c", {descendant!r}]); time.sleep(60)'
         status, _, facts = self.invoke(code, ['--timeout', '1'])
         self.assertEqual(status, 124)
         log = Path(facts['artifact_dir']) / 'stdout.log'
-        pid = int(log.read_text().splitlines()[0])
-        def cleanup():
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        self.addCleanup(cleanup)
+        self.assertGreater(int(log.read_text().splitlines()[0]), 0)
+        # The fixture has a bounded lifetime; never signal a potentially
+        # recycled grandchild PID from test teardown.
         captured = log.read_bytes()
         self.assertIn(b'heartbeat', captured)
         time.sleep(0.3)
@@ -279,6 +279,208 @@ class SummarizeTests(unittest.TestCase):
         with patch.object(helper.urllib.request, 'urlopen', return_value=io.BytesIO(b'not json')):
             with self.assertRaisesRegex(RuntimeError, 'invalid JSON'):
                 helper.request_json('http://stub/v1/models')
+
+    def test_review_metadata_failure_keeps_summary_and_original_error(self):
+        replace = Path.replace
+        def fail_final(path, target):
+            if path.name == 'metadata.tmp' and json.loads(path.read_text())['phase'] == 'finished':
+                raise OSError('injected metadata failure')
+            return replace(path, target)
+        for command_exit, inference_fails in ((0, False), (7, False), (0, True), (7, True)):
+            def response(url, payload=None, timeout=120):
+                if payload is not None and inference_fails:
+                    raise RuntimeError('original inference error')
+                return self.response(url, payload, timeout)
+            with self.subTest(command_exit=command_exit, inference_fails=inference_fails), patch.object(Path, 'replace', fail_final):
+                status, summary, facts = self.invoke(f'raise SystemExit({command_exit})', response=response)
+                self.assertEqual(status, command_exit or (2 if inference_fails else 0))
+                self.assertEqual(summary, '' if inference_fails else 'A concise summary.\n')
+                self.assertEqual(facts['summary_status'], 'error' if inference_fails else 'ok')
+                self.assertEqual(facts['metadata_status'], 'stale_or_missing')
+                self.assertIn('injected metadata failure', facts['metadata_errors'][-1]['error'])
+                if inference_fails:
+                    self.assertEqual(facts['error'], 'original inference error')
+                directory = Path(facts['artifact_dir'])
+                self.assertEqual(json.loads((directory / 'metadata.json').read_text())['phase'], 'summarizing')
+                if not inference_fails:
+                    self.assertEqual((directory / 'summary.txt').read_text(), summary)
+
+    def test_review_early_metadata_failure_does_not_prevent_capture(self):
+        replace = Path.replace
+        def fail_first(path, target):
+            if path.name == 'metadata.tmp' and json.loads(path.read_text())['phase'] == 'running':
+                raise OSError('initial metadata failure')
+            return replace(path, target)
+        with patch.object(Path, 'replace', fail_first):
+            status, _, facts = self.invoke('print("captured evidence")')
+        self.assertEqual(status, 0)
+        self.assertEqual(facts['metadata_status'], 'saved')
+        self.assertEqual(len(facts['metadata_errors']), 1)
+        self.assertEqual((Path(facts['artifact_dir']) / 'stdout.log').read_text(), 'captured evidence\n')
+
+    def test_review_failed_summary_save_does_not_suppress_stdout(self):
+        write = Path.write_text
+        def fail_summary(path, *args, **kwargs):
+            if path.name == 'summary.txt':
+                raise OSError('summary artifact write failed')
+            return write(path, *args, **kwargs)
+        with patch.object(Path, 'write_text', fail_summary):
+            status, summary, facts = self.invoke()
+        self.assertEqual(status, 0)
+        self.assertEqual(summary, 'A concise summary.\n')
+        self.assertEqual(facts['summary_status'], 'ok')
+        self.assertIn('write failed', facts['summary_artifact_error'])
+
+    def test_review_timeout_facts_differ_from_command_exit_124(self):
+        status, _, facts = self.invoke('import time; print("PASSED", flush=True); time.sleep(60)', ['--timeout', '1'])
+        self.assertEqual(status, 124)
+        self.assertTrue(self.prompt_facts()['timed_out'])
+        self.assertEqual(self.prompt_facts()['timeout_seconds'], 1)
+        self.assertFalse(self.prompt_facts()['interrupted'])
+        self.assertFalse(facts['truncated'])
+        status, _, _ = self.invoke('raise SystemExit(124)')
+        self.assertEqual(status, 124)
+        self.assertFalse(self.prompt_facts()['timed_out'])
+
+    def test_review_interrupt_skips_inference_and_preserves_raw_output(self):
+        def interrupt(process, timeout):
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                logs = list(self.artifacts.glob('run-*/stdout.log'))
+                if logs and b'READY' in logs[-1].read_bytes():
+                    raise KeyboardInterrupt
+                time.sleep(0.01)
+            self.fail('command did not become ready')
+        with patch.object(helper, 'wait_for_command', side_effect=interrupt):
+            status, summary, facts = self.invoke('import time; print("READY", flush=True); time.sleep(60)', ['--ignore-command-exit-code'])
+        self.assertEqual(status, 130)
+        self.assertEqual(summary, '')
+        self.assertTrue(facts['interrupted'])
+        self.assertEqual(facts['command_exit'], 130)
+        self.assertEqual(facts['summary_status'], 'interrupted')
+        self.assertEqual(self.requests, [])
+        directory = Path(facts['artifact_dir'])
+        self.assertIn(b'READY', (directory / 'stdout.log').read_bytes())
+        self.assertFalse((directory / 'summary.txt').exists())
+        status, _, facts = self.invoke('raise SystemExit(130)')
+        self.assertEqual(status, 130)
+        self.assertFalse(facts['interrupted'])
+        self.assertEqual(facts['summary_status'], 'ok')
+        self.assertEqual(len(self.requests), 1)
+
+    def test_review_interrupt_during_setup_or_inference_keeps_command_facts(self):
+        for phase in ('setup', 'inference'):
+            def response(url, payload=None, timeout=120):
+                if (payload is None) == (phase == 'setup'):
+                    raise KeyboardInterrupt
+                return self.response(url, payload, timeout)
+            with self.subTest(phase=phase):
+                status, summary, facts = self.invoke(response=response)
+                self.assertEqual(status, 130)
+                self.assertEqual(summary, '')
+                self.assertTrue(facts['interrupted'])
+                self.assertEqual(facts['command_exit'], None if phase == 'setup' else 0)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process-group ownership')
+    def test_review_group_leader_remains_waitable_until_last_signal(self):
+        process = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], start_new_session=True)
+        killpg, sleep = os.killpg, time.sleep
+        events = []
+        def observe(pid, sig):
+            self.assertIsNone(process.returncode)
+            # Raises ECHILD if this PID has already been reaped, even if recycled.
+            info = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            events.append((sig, info is not None))
+            return killpg(pid, sig)
+        try:
+            with patch.object(helper.os, 'killpg', side_effect=observe), patch.object(helper.time, 'sleep', side_effect=lambda _: sleep(0.1)):
+                helper.terminate_process(process)
+            self.assertEqual([sig for sig, _ in events], [signal.SIGTERM, signal.SIGKILL])
+            self.assertTrue(events[-1][1], 'leader should have exited but remain unreaped')
+            self.assertIsNotNone(process.returncode)
+            with self.assertRaises(ChildProcessError):
+                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        finally:
+            process.kill()  # Popen guards its own, already-reaped PID.
+            process.wait()
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process-group ownership')
+    def test_review_reaped_or_unowned_child_never_receives_group_signal(self):
+        with patch.object(helper.os, 'killpg') as send:
+            helper.terminate_process(Mock(returncode=0))
+            with patch.object(helper.os, 'waitid', side_effect=ChildProcessError):
+                errors = helper.terminate_process(Mock(returncode=None, pid=12345))
+            send.assert_not_called()
+            self.assertTrue(errors)
+
+    def test_review_scan_boundaries_match_whole_text(self):
+        cases = [
+            b'z' * 8184 + b' warnings ok\n' + b'y' * 90000,
+            b'z' * 8186 + b' errorx' + b'y' * 200,
+            b'prefix\n' + b'x' * 8176 + b' critical failure\n' + b'y' * 9000,
+            ('日本語' * 910 + '\nERROR unicode boundary\n').encode(),
+            b'z' * 8186 + b' error',
+        ]
+        path = self.root / 'boundary.log'
+        for raw in cases:
+            with self.subTest(length=len(raw)):
+                path.write_bytes(raw)
+                positions, count = helper.diagnostic_positions(path)
+                expected = [match.start() for match in helper.DIAGNOSTIC.finditer(raw.decode('utf-8', 'surrogateescape'))]
+                self.assertEqual(count, len(expected))
+                self.assertEqual(positions, expected)
+
+    def selection_fixture(self, stdout, stderr=b'', budget=12000):
+        (self.root / 'stdout.log').write_bytes(stdout)
+        (self.root / 'stderr.log').write_bytes(stderr)
+        return helper.build_captured_output(self.root, budget)
+
+    def test_review_overlapping_windows_emit_unique_source_bytes(self):
+        first = b''.join(f'ERROR start-{i}: failed step\n'.encode() for i in range(5))
+        last = b''.join(f'ERROR end-{i}: failed step\n'.encode() for i in range(5))
+        text, coverage = self.selection_fixture(first + b'ordinary progress\n' * 100000 + last)
+        facts = coverage['stdout']
+        self.assertLessEqual(len(text), 12000)
+        self.assertGreater(facts['selected_bytes'], 11000)
+        ranges = facts['ranges']
+        self.assertEqual(sum(end - start for start, end in ranges), facts['selected_bytes'])
+        self.assertTrue(all(left[1] < right[0] for left, right in zip(ranges, ranges[1:])))
+        self.assertLessEqual(facts['diagnostic_windows'], len(ranges))
+
+    def test_review_quiet_stream_returns_unused_budget(self):
+        stdout = b'ordinary progress\n' * 40000
+        _, empty = self.selection_fixture(stdout)
+        text, quiet = self.selection_fixture(stdout, b'\n')
+        self.assertGreater(quiet['stdout']['selected_bytes'], empty['stdout']['selected_bytes'] * 0.98)
+        self.assertGreater(len(text), 11800)
+        self.assertLessEqual(len(text), 12000)
+        self.assertFalse(quiet['stderr']['truncated'])
+        for out, err in ((b'x' * 8000, b'\n'), (b'\n', b'x' * 8000)):
+            _, coverage = self.selection_fixture(out, err)
+            self.assertFalse(any(facts['truncated'] for facts in coverage.values()))
+
+    def test_review_unicode_that_fits_is_retained_whole(self):
+        for text in ('start\n' + '日本語' * 1666 + '\n', 'e\u0301' * 3050, '😀' * 5000):
+            with self.subTest(characters=len(text)):
+                raw = text.encode()
+                evidence, coverage = self.selection_fixture(raw)
+                self.assertIn(text, evidence)
+                self.assertNotIn('\ufffd', evidence)
+                self.assertFalse(coverage['stdout']['truncated'])
+                self.assertEqual(coverage['stdout']['ranges'], [[0, len(raw)]])
+                self.assertEqual(coverage['stdout']['total_chars'], len(text))
+
+    def test_review_partial_unicode_ranges_end_at_codepoint_boundaries(self):
+        for prefix in ('a', 'aa', 'aaa', 'start\n'):
+            raw = (prefix + ('日本語😀e\u0301\n' * 10000)).encode()
+            evidence, coverage = self.selection_fixture(raw)
+            self.assertNotIn('\ufffd', evidence)
+            self.assertLessEqual(len(evidence), 12000)
+            self.assertGreater(coverage['stdout']['selected_chars'], 11000)
+            self.assertTrue(coverage['stdout']['truncated'])
+            for start, end in coverage['stdout']['ranges']:
+                raw[start:end].decode('utf-8', errors='strict')
+
 
 
 if __name__ == '__main__':
