@@ -37,8 +37,11 @@ python3 <skill-dir>/scripts/summarize_cli.py \
 Replace `<skill-dir>` with this skill's directory path. In this repository, that
 is `.agents/skills/summarize-cli` when running from the repository root.
 
-The helper checks that the LM Studio server is reachable before running the
-command, so an expensive command is never run when no summary is possible.
+The helper checks the server's model list before running the command and rejects
+an explicit model ID that is absent from that list. Listing does not prove a
+model is loaded or ready for inference: [LM Studio's models endpoint](https://lmstudio.ai/docs/developer/openai-compat/models)
+can include downloaded models when Just-In-Time loading is enabled. Inference
+can still fail after the command runs; the raw output remains available.
 
 Everything after `--` is the command to execute. Use `bash -lc` only when shell
 features such as pipes, redirects, globbing, or compound commands are needed.
@@ -51,16 +54,88 @@ review, approval, or sandboxing process.
 - `--base-url`: LM Studio server base URL. Defaults to
   `LMSTUDIO_BASE_URL`, then `http://127.0.0.1:1234/v1`.
 - `--model`: Model name. Defaults to `LMSTUDIO_MODEL`. If unset, the helper
-  queries `/models` and uses the first loaded non-embedding model.
+  queries `/models` and uses the first listed ID without `embed` in its name.
+  This name heuristic does not prove chat compatibility; use an explicit ID
+  when needed.
 - `--timeout`: Command timeout in seconds. Defaults to `120`.
-- `--max-output-chars`: Maximum captured output sent to the model. Defaults to
-  `12000`, sized to fit models with an 8k-token context alongside the
-  instruction and response. Raise it only when the loaded model has a larger
-  context window.
+- `--max-output-chars`: Maximum excerpt characters sent to the model, including
+  stream/byte-range labels. Defaults to `12000`. This is a character budget,
+  not a token or context-window guarantee; allow room for the instruction and
+  response in the chosen model.
 - `--cwd`: Working directory for the command. Defaults to the current directory.
-- `--preserve-exit-code`: Exit with the wrapped command's exit code after a
-  successful summary. By default, the helper exits `0` when LM Studio returns a
-  summary, even if the wrapped command failed.
+- `--artifact-root`: Root for unique retained run directories. Defaults to
+  `SUMMARIZE_ARTIFACT_ROOT`, then `~/.agents/summarize-cli`. Use a temporary root
+  for tests. Each run directory is private to its owner.
+- `--preserve-exit-code`: Accepted for compatibility; this is now the default.
+- `--ignore-command-exit-code`: Opt into the old behavior: exit `0` after a
+  successful summary even when the command failed. Errors in the summarizer
+  still return `2`. Mutually exclusive with `--preserve-exit-code`.
+
+## Status and Verification
+
+The summary is written to stdout. Stderr emits `summarize-cli: <JSON>` records
+before execution, before inference, and at completion. The final record contains
+`command_exit`, `timed_out`, `timeout_seconds`, `interrupted`, `model`, `truncated`,
+`summary_status`, `wrapper_exit`, and `artifact_dir`. Timeout, interruption, and
+coverage facts are also provided to the model outside the captured output. A null command exit means the command did not run or no
+outcome was captured. Status facts are produced by the helper independently of
+the model's prose. `truncated` describes the model input, not the raw logs.
+
+By default, a nonzero command status takes precedence even if summarization
+also fails. Timeouts return `124`; signal termination uses `128 + signal`.
+A successful command followed by a summarizer/setup/capture error returns `2`.
+Use the JSON fields to distinguish a command exiting `2` from a helper error.
+Ctrl-C stops the workflow, skips any remaining inference, and returns `130` even
+with `--ignore-command-exit-code`. `interrupted: true` distinguishes cancellation
+from a command that independently exits `130`. Interruptions during setup leave
+`command_exit` null; interruptions after execution preserve its completed status.
+
+On POSIX, Python must expose `os.waitid`/`os.WNOWAIT`; this is checked before
+launching the command. The helper keeps the child unreaped until the final group
+signal, including when a descendant ignores termination. `cleanup_errors`
+reports signaling or reaping errors without replacing the timeout/interruption
+status. Foreground commands remain the supported capture contract.
+
+Metadata persistence is bookkeeping: failures appear in `metadata_errors` and
+never replace a command/model error or suppress a completed summary. When
+`metadata_status` is `stale_or_missing`, `metadata.json` may contain an earlier
+phase; use the final stderr record. A failed summary-file write is reported as
+`summary_artifact_error`; the summary remains available on stdout.
+
+The reported run directory retains:
+
+- `stdout.log` and `stderr.log`: original bytes streamed directly to disk, with
+  no capture-size limit in RAM. The streams are separate; cross-stream ordering
+  is not reconstructed. Run foreground commands; detached background writers
+  can continue changing their inherited log files after the command exits.
+- `model-input.txt`: the exact selected excerpts sent as captured output.
+- `metadata.json`: the latest status, byte counts, selected ranges, and coverage.
+- `summary.txt`: the successful summary, when available.
+
+Inspect an artifact directly instead of rerunning an expensive or state-changing
+command, for example `rg -n -a 'ERROR|FAILED' /path/to/run/stdout.log`. Artifacts
+remain after success and failure; remove a run directory once it is no longer
+needed. Disk usage grows with command output and retained runs.
+
+The excerpt budget counts decoded characters, including byte-range labels.
+Small streams return unused capacity to larger streams. The selector scans fixed
+snapshots of both files in bounded chunks for diagnostic keywords (such as error,
+failed, exception, warning, and timeout), keeps up to eight first/last distinct
+context candidates per stream, and samples the beginning, middle, and end.
+Overlapping ranges are merged before rendering, and the freed capacity supplies
+additional evidence. Byte-range labels identify the source of each excerpt.
+
+Valid UTF-8 characters are retained intact, including at excerpt and scan
+boundaries. Invalid original bytes are replaced only in model input; the raw
+files preserve every captured byte.
+
+Selection is heuristic: unfamiliar diagnostics, dense failures, long messages,
+and small budgets can leave important evidence out. `coverage` reports selected
+versus total characters and bytes, keyword-match counts, and distinct selected
+diagnostic regions. Partial coverage must not be interpreted as proof that no
+other failures exist. Inspect the raw artifacts
+when the summary affects a decision. Model fidelity and net savings are assessed
+separately in issue #15.
 
 ## Good Instructions
 
@@ -93,6 +168,10 @@ and confidence.
   the local model.
 - If command output may include secrets, run a narrower command or redact output
   before using this skill.
+- Raw stdout/stderr is also saved locally, unredacted, including output omitted
+  from the model input and failed runs. Private directory permissions do not
+  exclude those files from backups. Choose `--artifact-root` for the intended
+  storage policy and remove retained run directories when no longer needed.
 - Treat the local model summary as a helper result, not as ground truth. When
   the result affects code changes or destructive actions, verify the relevant
   lines directly.
